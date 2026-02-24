@@ -1,0 +1,8 @@
+{
+  "name": "social-media-operator",
+  "description": "Social media operator - post creation, approval, and publishing workflows for X (Twitter) and Instagram",
+  "version": "1.1.0",
+  "author": {
+    "name": "Yincheng Hou"
+  }
+}
