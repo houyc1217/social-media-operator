@@ -1,0 +1,8 @@
+{
+  "name": "menu-import-workflow",
+  "description": "Menu data import workflow - Use LLM intelligence to understand and extract dish information from ANY format",
+  "version": "1.1.0",
+  "author": {
+    "name": "Yincheng Hou"
+  }
+}

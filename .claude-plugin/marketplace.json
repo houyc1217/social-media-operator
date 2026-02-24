@@ -1,0 +1,28 @@
+{
+  "name": "social-media-operator",
+  "owner": {
+    "name": "Yincheng Hou"
+  },
+  "plugins": [
+    {
+      "name": "approval-workflow",
+      "source": "./plugins/approval-workflow",
+      "description": "Post approval workflow - Review posts one by one with text + images"
+    },
+    {
+      "name": "menu-import-workflow",
+      "source": "./plugins/menu-import-workflow",
+      "description": "Menu data import workflow - Use LLM intelligence to understand and extract dish information from ANY format"
+    },
+    {
+      "name": "post-workflow",
+      "source": "./plugins/post-workflow",
+      "description": "Post creation workflow - single quick create and batch generate 7 posts"
+    },
+    {
+      "name": "publish-workflow",
+      "source": "./plugins/publish-workflow",
+      "description": "Post publishing workflow - Publish approved posts to X (Twitter) and Instagram"
+    }
+  ]
+}

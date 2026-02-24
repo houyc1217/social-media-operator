@@ -1,0 +1,8 @@
+{
+  "name": "post-workflow",
+  "description": "Post creation workflow - single quick create and batch generate 7 posts",
+  "version": "1.1.0",
+  "author": {
+    "name": "Yincheng Hou"
+  }
+}
