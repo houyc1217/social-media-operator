@@ -7,13 +7,15 @@ allowed-tools: Bash(python3 *, curl *), Read, Write
 
 ## Publishing Overview
 
-**Publishing to social media is irreversible.** This workflow reads Approved posts from local JSON, uploads images to dc.missuo.ru image hosting service, publishes to X and Instagram using Composio MCP tools, then updates post status.
+**Publishing to social media is irreversible.** This workflow reads Approved posts from local JSON, uploads images to dc.missuo.ru image hosting service (following the redirect to get the direct signed CDN URL), publishes to X and Instagram using native MCP tools, then updates post status.
 
 ### Required MCP Tools
 
-**Composio MCP (ALREADY CONFIGURED ✅)**
-- **X (Twitter)**: `TWITTER_UPLOAD_MEDIA`, `TWITTER_CREATION_OF_A_POST`
-- **Instagram**: `INSTAGRAM_CREATE_MEDIA_CONTAINER`, `INSTAGRAM_CREATE_POST`
+**Twitter MCP (ALREADY CONFIGURED ✅)**
+- **X (Twitter)**: `McpTwitterOuath2McpPostTwitter_tool`
+
+**Instagram MCP (ALREADY CONFIGURED ✅)**
+- **Instagram**: `McpInstagramMcpInstagramCreateMediaContainer_tool`, `McpInstagramMcpInstagramPostIgUserMediaPublish_tool`
 
 **Telegram Bot MCP**
 - Send publish reports via `McpTelegramBotSendMessage_tool`
@@ -68,125 +70,82 @@ approved_posts = [
 
 ### 1. Upload Images to dc.missuo.ru Image Hosting
 
-**All images must be uploaded to dc.missuo.ru first** to get public URLs for both X and Instagram.
+**All images must be uploaded to dc.missuo.ru first** to get direct signed CDN URLs for both X and Instagram.
+
+**CRITICAL:** After uploading, you MUST follow the redirect to get the direct CDN URL. The `/file/...` shortlink URL causes failures on both X (server disconnect) and Instagram (9004 error). Always pass the direct signed CDN URL.
 
 **Process:**
-1. Read local image file
-2. Upload via curl multipart form-data
-3. Get public image URL
-
-**Bash Implementation:**
-```bash
-# Upload image to dc.missuo.ru
-response=$(curl -X POST 'https://dc.missuo.ru/upload' \
-  -F "image=@/path/to/image.jpg" 2>/dev/null)
-
-# Extract URL from JSON response
-image_url=$(echo "$response" | grep -oP '(?<="url":")[^"]+')
-
-echo "$image_url"
-# Output: https://dc.missuo.ru/file/1474441169546117323
-```
-
-**Expected Response:**
-```json
-{
-  "url": "https://dc.missuo.ru/file/1474441169546117323"
-}
-```
+1. Upload via curl multipart form-data → get `/file/` shortlink
+2. Follow the redirect → get direct signed CDN URL (e.g. `https://dc.missuo.ru/attachments/.../image.jpg?ex=...&hm=...`)
+3. Pass the **direct signed CDN URL** to both X and Instagram
 
 **Python Implementation:**
 ```python
-import subprocess
-import json
-import re
+import subprocess, json
 
 def upload_to_image_host(image_path):
-    """Upload image to dc.missuo.ru and return public URL"""
-    cmd = [
-        'curl', '-X', 'POST', 'https://dc.missuo.ru/upload',
-        '-F', f'image=@{image_path}'
-    ]
+    """
+    Upload to dc.missuo.ru and return the DIRECT CDN URL (after following redirect).
+    CRITICAL: Always follow the redirect — the /file/ URL itself causes failures on both
+    X (server disconnect) and Instagram (9004 error). The direct signed CDN URL works.
+    """
+    # Step 1: Upload and get the /file/ shortlink
+    cmd = ['curl', '-s', '--max-time', '30', '-X', 'POST',
+           'https://dc.missuo.ru/upload', '-F', f'image=@{image_path}']
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    data = json.loads(result.stdout.strip())
+    shortlink = data['url']  # e.g. https://dc.missuo.ru/file/147xxxx
 
-    result = subprocess.run(cmd, capture_output=True, text=True, stderr=subprocess.DEVNULL)
-    response = result.stdout.strip()
+    # Step 2: Follow the redirect to get the direct CDN URL
+    cmd2 = ['curl', '-s', '--max-time', '10', '-Ls', '-o', '/dev/null',
+            '-w', '%{url_effective}', shortlink]
+    result2 = subprocess.run(cmd2, capture_output=True, text=True)
+    direct_url = result2.stdout.strip()
+    # e.g. https://dc.missuo.ru/attachments/.../image.jpg?ex=...&hm=...
 
-    # Parse JSON response
-    try:
-        data = json.loads(response)
-        return data.get('url')
-    except json.JSONDecodeError:
-        # Fallback: use regex to extract URL
-        match = re.search(r'"url":"([^"]+)"', response)
-        if match:
-            return match.group(1)
-
-    raise Exception(f"Failed to upload image: {image_path}")
+    return direct_url
 
 # Usage
 image_url = upload_to_image_host('./data/0220c.jpg')
-print(f"Image URL: {image_url}")
+print(f"Direct CDN URL: {image_url}")
 ```
 
 **Store this for later use:**
-- `image_url` → public URL for both X and Instagram
+- `image_url` → direct signed CDN URL for both X and Instagram
 
 ---
 
 ### 2. Publish to X (Twitter)
 
-**Flow:** Local image → dc.missuo.ru → Download to temp → TWITTER_UPLOAD_MEDIA → TWITTER_CREATION_OF_A_POST
+**Flow:** Local image → dc.missuo.ru (follow redirect) → direct signed CDN URL → `McpTwitterOuath2McpPostTwitter_tool`
 
-**Steps:**
+**Tool:** `McpTwitterOuath2McpPostTwitter_tool`
 
-#### 2.1 Download Image from Image Host (for X compatibility)
-
-Since X's `TWITTER_UPLOAD_MEDIA` requires local file or s3key, we need to download the image first:
-
-```python
-import requests
-
-def download_image(image_url, local_path):
-    """Download image from URL to local path"""
-    response = requests.get(image_url)
-    with open(local_path, 'wb') as f:
-        f.write(response.content)
-    return local_path
-
-# Usage
-local_temp_path = '/tmp/twitter_upload.jpg'
-download_image(image_url, local_temp_path)
 ```
-
-**Alternative:** Use original local image directly for X upload (skip download step if original file still exists)
-
-#### 2.2 Upload Media to X
-```
-Tool: McpTwitterOuath2McpPostTwitter_tool
 Parameters:
   post: "<caption text>"
-  media_url: "<image_url from dc.missuo.ru>"
+  media_url: "<direct signed CDN URL from upload_to_image_host()>"
 
-Response: { tweet_id: "123456789..." }
+Returns: { "id": "tweet_id_here", "text": "..." }
 ```
 
-**Note:** The Twitter MCP tool accepts `media_url` directly, so you can pass the dc.missuo.ru URL without downloading.
-
-#### 2.3 Construct X URL
+**Extract tweet_id:**
 ```python
+tweet_id = response["id"]
 tweet_url = f"https://x.com/i/status/{tweet_id}"
 ```
 
 **Complete X Publishing Example:**
 ```python
-# Step 1: Upload image to dc.missuo.ru
+# Step 1: Upload image to dc.missuo.ru (follow redirect to get direct URL)
 image_url = upload_to_image_host('./data/0220c.jpg')
 
-# Step 2: Post to X with media URL
+# Step 2: Post to X with direct CDN URL
 # Use McpTwitterOuath2McpPostTwitter_tool
-# Parameters: post=caption, media_url=image_url
+# Parameters: post=caption, media_url=image_url (direct signed CDN URL)
 
 # Step 3: Extract tweet_id and construct URL
+tweet_id = response["id"]
 tweet_url = f"https://x.com/i/status/{tweet_id}"
 ```
 
@@ -194,59 +153,70 @@ tweet_url = f"https://x.com/i/status/{tweet_id}"
 
 ### 3. Publish to Instagram
 
-**Flow:** Image → dc.missuo.ru public URL → INSTAGRAM_CREATE_MEDIA_CONTAINER → INSTAGRAM_CREATE_POST
-
-Instagram requires a publicly accessible image URL. The URL returned by dc.missuo.ru (`https://dc.missuo.ru/file/...`) can be used directly.
+**Flow:** dc.missuo.ru direct signed CDN URL → `McpInstagramMcpInstagramCreateMediaContainer_tool` → `McpInstagramMcpInstagramPostIgUserMediaPublish_tool`
 
 #### 3.1 Single Image Post
 
 **Step 1: Create Media Container**
 ```
-Tool: INSTAGRAM_CREATE_MEDIA_CONTAINER
+Tool: McpInstagramMcpInstagramCreateMediaContainer_tool
 Parameters:
-  ig_user_id: "<YOUR_IG_USER_ID>"
-  image_url: "<public_url from dc.missuo.ru>"
+  ig_user_id: "me"
+  image_url: "<direct signed CDN URL from upload_to_image_host()>"
   caption: "<post caption>"
+  content_type: "photo"
 
-Response: { data: { id: "creation_id_123" } }
+Returns: { "data": { "id": "creation_id" } }
+```
+
+**Extract creation_id:**
+```python
+creation_id = response["data"]["id"]
 ```
 
 **Step 2: Publish Post**
 ```
-Tool: INSTAGRAM_CREATE_POST
+Tool: McpInstagramMcpInstagramPostIgUserMediaPublish_tool
 Parameters:
-  ig_user_id: "<YOUR_IG_USER_ID>"
+  ig_user_id: "me"
   creation_id: "<creation_id from step 1>"
 
-Response: { data: { id: "ig_post_id_456" } }
+Returns: { "data": { "id": "ig_post_id" } }
 ```
+
+**Extract ig_post_id:**
+```python
+ig_post_id = response["data"]["id"]
+```
+
+**Note:** `ig_post_id` is a numeric ID only, NOT a shortcode permalink. Store `igPermalink` as `null` — permalink is not returned by this tool.
 
 #### 3.2 Multi-Image Carousel (2+ images)
 
 **Step 1: Create Carousel Items**
 For each image:
 ```
-Tool: INSTAGRAM_CREATE_MEDIA_CONTAINER
+Tool: McpInstagramMcpInstagramCreateMediaContainer_tool
 Parameters:
-  ig_user_id: "<YOUR_IG_USER_ID>"
-  image_url: "<public_url from dc.missuo.ru>"
+  ig_user_id: "me"
+  image_url: "<direct signed CDN URL>"
   is_carousel_item: true
 
-Response: { data: { id: "child_id_1" } }
+Returns: { "data": { "id": "child_id_1" } }
 ```
 
 Repeat for all images to get `child_id_1`, `child_id_2`, etc.
 
 **Step 2: Create Carousel Container**
 ```
-Tool: INSTAGRAM_CREATE_MEDIA_CONTAINER
+Tool: McpInstagramMcpInstagramCreateMediaContainer_tool
 Parameters:
-  ig_user_id: "<YOUR_IG_USER_ID>"
+  ig_user_id: "me"
   media_type: "CAROUSEL"
   children: ["child_id_1", "child_id_2", ...]
   caption: "<post caption>"
 
-Response: { data: { id: "carousel_creation_id" } }
+Returns: { "data": { "id": "carousel_creation_id" } }
 ```
 
 **Step 3: Wait for Instagram Processing**
@@ -257,12 +227,12 @@ time.sleep(3)  # Instagram needs processing time
 
 **Step 4: Publish Carousel**
 ```
-Tool: INSTAGRAM_CREATE_POST
+Tool: McpInstagramMcpInstagramPostIgUserMediaPublish_tool
 Parameters:
-  ig_user_id: "<YOUR_IG_USER_ID>"
+  ig_user_id: "me"
   creation_id: "<carousel_creation_id>"
 
-Response: { data: { id: "ig_post_id_789" } }
+Returns: { "data": { "id": "ig_post_id" } }
 ```
 
 **Note**: Instagram does not support text-only posts. Posts without images are published to X only.
@@ -271,7 +241,7 @@ Response: { data: { id: "ig_post_id_789" } }
 
 ### 4. Update Post Status in Local JSON
 
-After a successful publish, update `./data/posts.json`:
+After a successful publish, update `./data/posts.json` **immediately**:
 
 **Implementation:**
 ```python
@@ -291,7 +261,7 @@ for post in data['posts']:
         post['tweetUrl'] = f"https://x.com/i/status/{tweet_id}"
         if ig_post_id:
             post['igPostId'] = ig_post_id
-            post['igPermalink'] = f"https://www.instagram.com/p/{ig_shortcode}/"
+            post['igPermalink'] = None  # Not returned by Instagram MCP tool
         break
 
 # Write back
@@ -304,8 +274,8 @@ with open('./data/posts.json', 'w') as f:
 - `postedAt` → current timestamp (ISO 8601)
 - `tweetId` → X post ID
 - `tweetUrl` → X post URL
-- `igPostId` → Instagram post ID (if published to IG)
-- `igPermalink` → Instagram post URL (if published to IG)
+- `igPostId` → Instagram post numeric ID (if published to IG)
+- `igPermalink` → `null` (permalink not returned by Instagram MCP tool)
 
 ---
 
@@ -315,9 +285,22 @@ with open('./data/posts.json', 'w') as f:
 
 ```python
 import json
-import base64
 import time
+import subprocess
 from datetime import datetime
+
+def upload_to_image_host(image_path):
+    """Upload to dc.missuo.ru and return DIRECT signed CDN URL (after following redirect)."""
+    cmd = ['curl', '-s', '--max-time', '30', '-X', 'POST',
+           'https://dc.missuo.ru/upload', '-F', f'image=@{image_path}']
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    data = json.loads(result.stdout.strip())
+    shortlink = data['url']
+
+    cmd2 = ['curl', '-s', '--max-time', '10', '-Ls', '-o', '/dev/null',
+            '-w', '%{url_effective}', shortlink]
+    result2 = subprocess.run(cmd2, capture_output=True, text=True)
+    return result2.stdout.strip()
 
 # Step 0: Load Approved posts
 with open('./data/posts.json', 'r') as f:
@@ -333,38 +316,43 @@ for post in approved_posts:
     caption = post['generatedContent']
     media_paths = post.get('media', [])
 
-    # Step 1: Upload images to dc.missuo.ru
+    # Step 1: Upload images to dc.missuo.ru → follow redirect → direct signed CDN URL
     uploaded_images = []
     for media_path in media_paths:
-            # Upload to dc.missuo.ru
-        image_url = upload_to_image_host(abs_path)
+        image_url = upload_to_image_host(media_path)
         uploaded_images.append(image_url)
 
     # Step 2: Publish to X
     # Use McpTwitterOuath2McpPostTwitter_tool
-    # Parameters: post=caption, media_url=uploaded_images[0]
+    # Parameters: post=caption, media_url=uploaded_images[0] (direct signed CDN URL)
+    # tweet_id = response["id"]
     tweet_id = '...'
     tweet_url = f"https://x.com/i/status/{tweet_id}"
 
     # Step 3: Publish to Instagram
+    ig_post_id = None
     if len(uploaded_images) == 1:
         # Single image
-        # INSTAGRAM_CREATE_MEDIA_CONTAINER(image_url=uploaded_images[0]) → creation_id
-        # INSTAGRAM_CREATE_POST → ig_post_id
+        # McpInstagramMcpInstagramCreateMediaContainer_tool(ig_user_id="me", image_url=uploaded_images[0], caption=caption, content_type="photo")
+        # creation_id = response["data"]["id"]
+        # McpInstagramMcpInstagramPostIgUserMediaPublish_tool(ig_user_id="me", creation_id=creation_id)
+        # ig_post_id = response["data"]["id"]
         ig_post_id = '...'
     elif len(uploaded_images) >= 2:
         # Carousel
         child_ids = []
         for img_url in uploaded_images:
-            # INSTAGRAM_CREATE_MEDIA_CONTAINER(image_url=img_url, is_carousel_item=True)
+            # McpInstagramMcpInstagramCreateMediaContainer_tool(ig_user_id="me", image_url=img_url, is_carousel_item=True)
+            # child_ids.append(response["data"]["id"])
             child_ids.append('...')
 
-        # INSTAGRAM_CREATE_MEDIA_CONTAINER(media_type='CAROUSEL', children=child_ids)
+        # McpInstagramMcpInstagramCreateMediaContainer_tool(ig_user_id="me", media_type='CAROUSEL', children=child_ids, caption=caption)
         time.sleep(3)
-        # INSTAGRAM_CREATE_POST
+        # McpInstagramMcpInstagramPostIgUserMediaPublish_tool(ig_user_id="me", creation_id=carousel_creation_id)
+        # ig_post_id = response["data"]["id"]
         ig_post_id = '...'
 
-    # Step 4: Update posts.json
+    # Step 4: Update posts.json IMMEDIATELY
     for p in data['posts']:
         if p['uid'] == uid:
             p['status'] = 'Posted'
@@ -373,7 +361,7 @@ for post in approved_posts:
             p['tweetUrl'] = tweet_url
             if ig_post_id:
                 p['igPostId'] = ig_post_id
-                p['igPermalink'] = '...'
+                p['igPermalink'] = None  # Not returned by Instagram MCP tool
             break
 
 # Save posts.json
@@ -394,7 +382,7 @@ After each publish run, send a report via Telegram:
 ✅ Successfully published: 1 post
 - 0220c:
   🐦 X: https://x.com/i/status/2024872469316682221
-  📸 IG: https://www.instagram.com/p/xxxxx/
+  📸 IG: (no permalink — numeric ID only)
 
 ✓ No posts pending.
 ```
@@ -416,31 +404,39 @@ Parameters:
 
 ### Critical Success Pattern
 1. Read Approved posts from posts.json
-2. **Upload all images to dc.missuo.ru first** to get public URLs
-3. Publish to X using `McpTwitterOuath2McpPostTwitter_tool` with media_url
-4. Publish to Instagram using image URLs via `INSTAGRAM_CREATE_MEDIA_CONTAINER`
-5. **IMMEDIATELY update posts.json** with results (status="Posted", tweetId, tweetUrl, etc.)
+2. Upload image to dc.missuo.ru → **follow redirect** → get direct signed CDN URL
+3. Publish to X using `McpTwitterOuath2McpPostTwitter_tool` with `media_url` = direct signed CDN URL
+4. Publish to Instagram using `McpInstagramMcpInstagramCreateMediaContainer_tool` (`ig_user_id="me"`) then `McpInstagramMcpInstagramPostIgUserMediaPublish_tool`
+5. **IMMEDIATELY update posts.json** with `tweetId`, `tweetUrl`, `igPostId`
 6. Verify file write succeeded
 
 ### Tool Chain
 
-**Image Hosting (dc.missuo.ru):**
+**Image Hosting (dc.missuo.ru) — MUST follow redirect:**
 ```bash
-curl -X POST 'https://dc.missuo.ru/upload' -F "image=@/path/to/image.jpg"
+# Step 1: Upload → get shortlink
+curl -s --max-time 30 -X POST 'https://dc.missuo.ru/upload' -F "image=@/path/to/image.jpg"
 # Returns: {"url": "https://dc.missuo.ru/file/..."}
+
+# Step 2: Follow redirect → get direct signed CDN URL
+curl -s --max-time 10 -Ls -o /dev/null -w '%{url_effective}' 'https://dc.missuo.ru/file/...'
+# Returns: https://dc.missuo.ru/attachments/.../image.jpg?ex=...&hm=...
 ```
 
-**X (Twitter) - via MCP:**
+**X (Twitter) - via native Twitter MCP:**
 - `McpTwitterOuath2McpPostTwitter_tool` — create post with text and media_url
-  - Parameters: `{post: "<text>", media_url: "<image_url>"}`
-  - Returns: `{tweet_id: "..."}`
+  - Parameters: `{post: "<text>", media_url: "<direct signed CDN URL>"}`
+  - Returns: `{"id": "tweet_id", "text": "..."}`
 
-**Instagram - via MCP:**
-- `INSTAGRAM_CREATE_MEDIA_CONTAINER` — create media container
-  - Single: `{image_url, caption}`
-  - Carousel item: `{image_url, is_carousel_item: true}`
-  - Carousel: `{media_type: 'CAROUSEL', children: [id1, id2, ...], caption}`
-- `INSTAGRAM_CREATE_POST` — publish post `{ig_user_id, creation_id}`
+**Instagram - via native Instagram MCP:**
+- `McpInstagramMcpInstagramCreateMediaContainer_tool` — create media container
+  - Single: `{ig_user_id: "me", image_url, caption, content_type: "photo"}`
+  - Carousel item: `{ig_user_id: "me", image_url, is_carousel_item: true}`
+  - Carousel: `{ig_user_id: "me", media_type: "CAROUSEL", children: [id1, id2, ...], caption}`
+  - Returns: `{"data": {"id": "creation_id"}}`
+- `McpInstagramMcpInstagramPostIgUserMediaPublish_tool` — publish post
+  - Parameters: `{ig_user_id: "me", creation_id}`
+  - Returns: `{"data": {"id": "ig_post_id"}}` (numeric ID only, no permalink)
 
 ---
 
@@ -448,11 +444,14 @@ curl -X POST 'https://dc.missuo.ru/upload' -F "image=@/path/to/image.jpg"
 
 | Error | Resolution |
 |---|---|
+| X: Server disconnected | dc.missuo.ru `/file/` shortlink was passed directly — must follow redirect first to get signed CDN URL |
+| X: 401 Unauthorized on media | Signed CDN URL with query params is fine for Twitter MCP. If 401 appears, re-authorize the twitter-ouath2-mcp |
+| Instagram: 9004 error | dc.missuo.ru `/file/` shortlink was passed directly — must follow redirect to get direct URL |
+| Instagram: `creation_id` empty | Check `response["data"]["id"]`, not `response["id"]` |
+| Imgur 429 | Imgur rate-limits the MCP server IP — do not use Imgur. Use dc.missuo.ru only |
+| catbox.moe disconnect | MCP server cannot reach catbox.moe — use dc.missuo.ru only |
 | dc.missuo.ru upload failed | Check network connection; ensure image file exists and is readable; verify file size < 10MB |
-| Instagram: image URL not accessible | Ensure image was uploaded to dc.missuo.ru and the URL is valid and publicly accessible |
 | Instagram: missing image | Instagram requires at least 1 image — text-only posts are skipped |
-| Instagram: `creation_id` is empty | Check `INSTAGRAM_CREATE_MEDIA_CONTAINER` response — `creation_id` is at `response.data.id` |
-| X: media upload failed | Verify image URL is valid; ensure dc.missuo.ru URL is accessible |
 | X/Instagram: auth error | Verify accounts are connected in MCP dashboard |
 | Image host timeout | Increase timeout in curl command or retry upload |
 
@@ -467,6 +466,7 @@ curl -X POST 'https://dc.missuo.ru/upload' -F "image=@/path/to/image.jpg"
 - **Availability**: Third-party service, no uptime guarantee
 - **Privacy**: Uploaded images get public URLs - do not upload sensitive content
 - **Link persistence**: Long-term availability depends on service provider
+- **IMPORTANT**: Always follow the redirect from `/file/` to get the direct signed CDN URL
 
 **Backup Strategy:**
 - Keep original images in `data/` folder
@@ -475,4 +475,4 @@ curl -X POST 'https://dc.missuo.ru/upload' -F "image=@/path/to/image.jpg"
 
 ---
 
-*Updated: 2026-02-20 — Migrated from Rube S3 to dc.missuo.ru image hosting for simplified workflow*
+*Updated: 2026-02-25 — Fixed image URL redirect (must follow redirect from /file/ shortlink to direct CDN URL); replaced Composio tools with native Twitter and Instagram MCP tools; fixed Instagram response parsing (response["data"]["id"]); igPermalink set to null (not returned by MCP)*
