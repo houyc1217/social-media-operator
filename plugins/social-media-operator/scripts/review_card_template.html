@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  :root {
+    --card-bg: #ffffff;
+    --page-bg: #f1f3f4;
+    --text-primary: #202124;
+    --text-secondary: #5f6368;
+    --text-tertiary: #80868b;
+    --star-color: #fbbc04;
+    --star-empty: #dadce0;
+    --border-color: #e8eaed;
+    --shadow: 0 1px 3px rgba(60,64,67,0.15), 0 1px 2px rgba(60,64,67,0.1);
+    --card-radius: 12px;
+    --google-blue: #4285f4;
+    --google-red: #ea4335;
+    --google-yellow: #fbbc04;
+    --google-green: #34a853;
+  }
+
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  body {
+    background: var(--page-bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: 'Google Sans', 'Segoe UI', Roboto, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  .review-card {
+    background: var(--card-bg);
+    border-radius: var(--card-radius);
+    box-shadow: var(--shadow);
+    width: 580px;
+    padding: 28px 32px 24px 32px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .google-brand {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .google-logo-text {
+    font-size: 18px;
+    font-weight: 500;
+    letter-spacing: -0.2px;
+  }
+
+  .google-logo-text .g-blue { color: var(--google-blue); }
+  .google-logo-text .g-red { color: var(--google-red); }
+  .google-logo-text .g-yellow { color: var(--google-yellow); }
+  .google-logo-text .g-green { color: var(--google-green); }
+
+  .maps-label {
+    font-size: 13px;
+    color: var(--text-secondary);
+    font-weight: 400;
+    margin-left: 2px;
+  }
+
+  .store-name {
+    font-size: 13px;
+    color: var(--text-secondary);
+    font-weight: 500;
+    text-align: right;
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .reviewer-section {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+
+  .avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--google-blue);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 18px;
+    font-weight: 500;
+    flex-shrink: 0;
+    letter-spacing: 0.5px;
+  }
+
+  .reviewer-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .reviewer-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1.2;
+  }
+
+  .reviewer-badge {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    line-height: 1.2;
+    display: none;
+  }
+
+  .reviewer-badge.visible {
+    display: block;
+  }
+
+  .stars-row {
+    display: flex;
+    align-items: center;
+    gap: 1px;
+  }
+
+  .star {
+    font-size: 16px;
+    color: var(--star-empty);
+    line-height: 1;
+  }
+
+  .star.filled {
+    color: var(--star-color);
+  }
+
+  .review-date {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    margin-left: 8px;
+  }
+
+  .review-text {
+    font-size: 15px;
+    color: var(--text-primary);
+    line-height: 1.6;
+    margin-top: 4px;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+  }
+
+  .card-footer {
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .maps-icon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+  }
+
+  .footer-text {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    letter-spacing: 0.1px;
+  }
+</style>
+</head>
+<body>
+  <div class="review-card" id="review-card">
+    <div class="card-header">
+      <div class="google-brand">
+        <span class="google-logo-text"><span class="g-blue">G</span><span class="g-red">o</span><span class="g-yellow">o</span><span class="g-blue">g</span><span class="g-green">l</span><span class="g-red">e</span></span>
+        <span class="maps-label">Maps</span>
+      </div>
+      <div class="store-name" id="store-name">Your Business</div>
+    </div>
+
+    <div class="reviewer-section">
+      <div class="avatar" id="avatar">A</div>
+      <div class="reviewer-info">
+        <div class="reviewer-name" id="reviewer-name">Reviewer</div>
+        <div class="reviewer-badge" id="reviewer-badge"></div>
+        <div class="stars-row">
+          <span class="star filled" id="star-1">&#9733;</span>
+          <span class="star filled" id="star-2">&#9733;</span>
+          <span class="star filled" id="star-3">&#9733;</span>
+          <span class="star filled" id="star-4">&#9733;</span>
+          <span class="star filled" id="star-5">&#9733;</span>
+          <span class="review-date" id="review-date">recently</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="review-text" id="review-text">A wonderful experience.</div>
+
+    <div class="card-footer">
+      <svg class="maps-icon" viewBox="0 0 24 24" fill="none">
+        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="#ea4335"/>
+        <circle cx="12" cy="9" r="2.5" fill="#fff"/>
+      </svg>
+      <span class="footer-text">Posted on Google Maps</span>
+    </div>
+  </div>
+
+<script>
+(function() {
+  var params = new URLSearchParams(window.location.search);
+
+  var name   = params.get('name');
+  var rating = params.get('rating');
+  var text   = params.get('text');
+  var date   = params.get('date');
+  var store  = params.get('store');
+  var badge  = params.get('badge');
+
+  if (name) {
+    document.getElementById('reviewer-name').textContent = name;
+    document.getElementById('avatar').textContent = name.trim().charAt(0).toUpperCase();
+  }
+
+  if (rating) {
+    var r = parseInt(rating, 10);
+    if (r >= 1 && r <= 5) {
+      for (var i = 1; i <= 5; i++) {
+        var el = document.getElementById('star-' + i);
+        if (i <= r) {
+          el.className = 'star filled';
+        } else {
+          el.className = 'star';
+        }
+      }
+    }
+  }
+
+  if (text) {
+    document.getElementById('review-text').textContent = text;
+  }
+
+  if (date) {
+    document.getElementById('review-date').textContent = date;
+  }
+
+  if (store) {
+    document.getElementById('store-name').textContent = store;
+  }
+
+  if (badge) {
+    var badgeEl = document.getElementById('reviewer-badge');
+    badgeEl.textContent = badge;
+    badgeEl.className = 'reviewer-badge visible';
+  }
+})();
+</script>
+</body>
+</html>

@@ -3,10 +3,6 @@ name: post-workflow
 description: Post creation workflow - generates professional captions from user descriptions or images for dual-platform publishing to X and Instagram
 user-invocable: true
 argument-hint: [description or image path]
-metadata:
-  openclaw:
-    requires:
-      env: []
 ---
 
 ## Overview

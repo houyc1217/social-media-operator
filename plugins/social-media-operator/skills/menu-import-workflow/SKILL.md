@@ -2,8 +2,6 @@
 name: menu-import-workflow
 description: Menu data import workflow - Use LLM intelligence to understand and extract dish information from ANY format
 user-invocable: true
-metadata:
-  {"openclaw": {"requires": {"env": []}}}
 ---
 
 ## 🎯 Core Philosophy
