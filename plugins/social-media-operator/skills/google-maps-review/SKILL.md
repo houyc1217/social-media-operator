@@ -1,5 +1,5 @@
 ---
-name: google-maps-review-workflow
+name: google-maps-review
 description: Automatically captures real Google Maps review screenshots using Playwright, generates post content, and saves to posts.json for approval and publishing.
 user-invocable: true
 disable-model-invocation: false

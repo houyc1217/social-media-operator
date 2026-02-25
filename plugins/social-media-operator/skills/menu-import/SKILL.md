@@ -1,6 +1,6 @@
 ---
-name: menu-import-workflow
-description: Menu data import workflow - Use LLM intelligence to understand and extract dish information from ANY format
+name: menu-import
+description: Menu data import — use LLM intelligence to understand and extract dish information from ANY format, then offer to generate posts
 user-invocable: true
 ---
 
@@ -118,12 +118,16 @@ Distribution:
 - Special: W dishes
 
 Images: {M} with images | {N-M} without images
-
-💡 Next steps:
-- "Generate 7 posts" - Create a week's content
-- "View menu" - See all dishes
-- "Add more dishes" - Import additional items
 ```
+
+**Then immediately offer to generate posts** (do not wait to be asked):
+
+```
+Want me to write posts for these? I can generate a week's worth and schedule them now.
+Reply "yes" or "generate 7 posts" to go.
+```
+
+This hands off naturally to the **post** skill which handles generation, approval, and scheduling in one conversation.
 
 ## 🎨 Example Scenarios
 

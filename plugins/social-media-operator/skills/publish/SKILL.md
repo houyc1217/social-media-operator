@@ -1,13 +1,13 @@
 ---
-name: publish-workflow
-description: Post publishing workflow - publishes Approved posts to X and Instagram using dc.missuo.ru image hosting, then sends a Telegram notification with the publish report
+name: publish
+description: Publishing engine — publishes Approved posts to X and Instagram using dc.missuo.ru image hosting, then sends a Telegram notification with the publish report
 user-invocable: false
 allowed-tools: Bash(python3 *, curl *), Read, Write
 ---
 
 ## Publishing Overview
 
-**Publishing to social media is irreversible.** This workflow reads Approved posts from local JSON, uploads images to dc.missuo.ru image hosting service (following the redirect to get the direct signed CDN URL), publishes to X and Instagram using native MCP tools, then updates post status.
+**Publishing to social media is irreversible.** This skill reads Approved posts from local JSON, uploads images to dc.missuo.ru image hosting service (following the redirect to get the direct signed CDN URL), publishes to X and Instagram using native MCP tools, then updates post status.
 
 ### Required MCP Tools
 
