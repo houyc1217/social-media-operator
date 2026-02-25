@@ -74,35 +74,70 @@ Reply: "all", "1", "1,3", or "0224b"
 
 ---
 
-### Step 3: Approve and Schedule
+### Step 3: Approve, Schedule, and Create xyz Task
 
-For each post being approved, set Approved + scheduledAt in one write:
+For each post being approved: update posts.json AND create an xyz task in `~/.openclaw/cron/jobs.json`.
 
 ```python
+import json, uuid, time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+from pathlib import Path
 
 london = ZoneInfo("Europe/London")
 
+# Update posts.json
+with open('./data/posts.json', 'r') as f:
+    data = json.load(f)
+
+# Load xyz jobs
+jobs_file = Path.home() / '.openclaw' / 'cron' / 'jobs.json'
+with open(jobs_file, 'r') as f:
+    jobs = json.load(f)
+
 # Space multiple approvals 1 day apart starting tomorrow
 for i, uid in enumerate(uids_to_approve):
-    scheduled_time = (datetime.now(london) + timedelta(days=1+i)).replace(
+    scheduled_dt = (datetime.now(london) + timedelta(days=1+i)).replace(
         hour=12, minute=0, second=0, microsecond=0
-    ).isoformat()
+    )
+    scheduled_iso = scheduled_dt.isoformat()
+    scheduled_ms = int(scheduled_dt.timestamp() * 1000)
+    now_ms = int(time.time() * 1000)
+
+    # Update post in posts.json
     for post in data['posts']:
         if post['uid'] == uid:
             post['status'] = 'Approved'
             post['approvedAt'] = datetime.now().isoformat() + 'Z'
-            post['scheduledAt'] = scheduled_time
+            post['scheduledAt'] = scheduled_iso
             break
+
+    # Create xyz task — fires once at scheduled time
+    jobs['jobs'].append({
+        "id": str(uuid.uuid4()),
+        "agentId": "main",          # set to current agent ID
+        "name": f"Publish {uid}",
+        "enabled": True,
+        "createdAtMs": now_ms,
+        "updatedAtMs": now_ms,
+        "schedule": {"kind": "at", "atMs": scheduled_ms},
+        "sessionTarget": "main",
+        "wakeMode": "next-heartbeat",
+        "payload": {"kind": "systemEvent", "text": f"run skill=publish uid={uid}"},
+        "state": {"nextRunAtMs": scheduled_ms, "lastRunAtMs": None,
+                  "lastStatus": None, "lastDurationMs": None}
+    })
 
 with open('./data/posts.json', 'w') as f:
     json.dump(data, f, indent=2)
+with open(jobs_file, 'w') as f:
+    json.dump(jobs, f, indent=2)
 ```
 
 **Scheduling:**
 - Single post → tomorrow 12:00 London
 - Multiple posts → consecutive days (tomorrow, +2, +3...) all at 12:00 London
+- Each post gets its own xyz task — no daily cron needed
 
 ---
 

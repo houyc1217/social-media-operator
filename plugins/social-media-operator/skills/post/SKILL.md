@@ -197,30 +197,69 @@ Approve to schedule for tomorrow 12:00 London time?
 
 **If user says "yes", "approve", "ok", or any affirmative:**
 
-Immediately update posts.json to Approved + schedule:
+Two things happen immediately:
+1. Update posts.json to Approved + set scheduledAt
+2. Create an xyz task in `~/.openclaw/cron/jobs.json` to fire at that time
 
 ```python
-import json
+import json, uuid, time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+from pathlib import Path
 
+# 1. Calculate scheduled time
+london = ZoneInfo("Europe/London")
+scheduled_dt = (datetime.now(london) + timedelta(days=1)).replace(
+    hour=12, minute=0, second=0, microsecond=0
+)
+scheduled_iso = scheduled_dt.isoformat()
+scheduled_ms = int(scheduled_dt.timestamp() * 1000)
+
+# 2. Update posts.json
 with open('./data/posts.json', 'r') as f:
     data = json.load(f)
-
-london = ZoneInfo("Europe/London")
-scheduled_time = (datetime.now(london) + timedelta(days=1)).replace(
-    hour=12, minute=0, second=0, microsecond=0
-).isoformat()
-
 for post in data['posts']:
     if post['uid'] == uid:
         post['status'] = 'Approved'
         post['approvedAt'] = datetime.now().isoformat() + 'Z'
-        post['scheduledAt'] = scheduled_time
+        post['scheduledAt'] = scheduled_iso
         break
-
 with open('./data/posts.json', 'w') as f:
     json.dump(data, f, indent=2)
+
+# 3. Create xyz task in cron/jobs.json
+jobs_file = Path.home() / '.openclaw' / 'cron' / 'jobs.json'
+with open(jobs_file, 'r') as f:
+    jobs = json.load(f)
+
+now_ms = int(time.time() * 1000)
+new_task = {
+    "id": str(uuid.uuid4()),
+    "agentId": "main",          # set to current agent ID
+    "name": f"Publish {uid}",
+    "enabled": True,
+    "createdAtMs": now_ms,
+    "updatedAtMs": now_ms,
+    "schedule": {
+        "kind": "at",
+        "atMs": scheduled_ms    # fires once at the scheduled time
+    },
+    "sessionTarget": "main",
+    "wakeMode": "next-heartbeat",
+    "payload": {
+        "kind": "systemEvent",
+        "text": f"run skill=publish uid={uid}"
+    },
+    "state": {
+        "nextRunAtMs": scheduled_ms,
+        "lastRunAtMs": None,
+        "lastStatus": None,
+        "lastDurationMs": None
+    }
+}
+jobs['jobs'].append(new_task)
+with open(jobs_file, 'w') as f:
+    json.dump(jobs, f, indent=2)
 ```
 
 Confirm:
@@ -270,12 +309,36 @@ Or "1,3,5" to approve specific ones. Or "edit 2" to revise a caption.
 - "1,3" or "approve 1,3" → approve those, leave others as Pending
 - "edit 2" → show full caption, let user revise, then ask again for that one
 
-Consecutive scheduling:
+Consecutive scheduling + task creation:
 ```python
+import uuid, time
+jobs_file = Path.home() / '.openclaw' / 'cron' / 'jobs.json'
+with open(jobs_file, 'r') as f:
+    jobs = json.load(f)
+
 for i, uid in enumerate(approved_uids):
-    scheduled_time = (datetime.now(london) + timedelta(days=1+i)).replace(
+    scheduled_dt = (datetime.now(london) + timedelta(days=1+i)).replace(
         hour=12, minute=0, second=0, microsecond=0
-    ).isoformat()
+    )
+    scheduled_ms = int(scheduled_dt.timestamp() * 1000)
+    now_ms = int(time.time() * 1000)
+    jobs['jobs'].append({
+        "id": str(uuid.uuid4()),
+        "agentId": "main",
+        "name": f"Publish {uid}",
+        "enabled": True,
+        "createdAtMs": now_ms,
+        "updatedAtMs": now_ms,
+        "schedule": {"kind": "at", "atMs": scheduled_ms},
+        "sessionTarget": "main",
+        "wakeMode": "next-heartbeat",
+        "payload": {"kind": "systemEvent", "text": f"run skill=publish uid={uid}"},
+        "state": {"nextRunAtMs": scheduled_ms, "lastRunAtMs": None,
+                  "lastStatus": None, "lastDurationMs": None}
+    })
+
+with open(jobs_file, 'w') as f:
+    json.dump(jobs, f, indent=2)
 ```
 
 ---
@@ -308,7 +371,7 @@ for i, uid in enumerate(approved_uids):
 |---|---|
 | Creating a new post and approving right now | **this skill (post)** |
 | Reviewing previously saved Pending posts later | **approval** skill |
-| Publishing Approved posts at scheduled time | **publish** skill (cron) |
+| Publishing Approved posts at scheduled time | **publish** skill (triggered by xyz task) |
 | Importing menu data | **menu-import** skill |
 | Capturing a Google Maps review | **google-maps-review** skill |
 

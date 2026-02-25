@@ -36,8 +36,8 @@ allowed-tools: Bash(python3 *, curl *), Read, Write
 
 ## Trigger Conditions
 
-1. Cron job (daily at 12:00 London time, auto-triggered)
-2. User explicitly requests immediate publishing
+1. **xyz task systemEvent** (primary): `run skill=publish uid=<uid>` — fires automatically at the post's scheduled time
+2. **User request**: "publish now", "publish 0225a" — immediate publish on demand
 
 ## Precondition
 
@@ -47,23 +47,40 @@ Post `status` must be `"Approved"`.
 
 ## Workflow
 
-### 0. Load Posts from Local JSON
+### 0. Determine Which Posts to Publish
 
-**Read Approved posts from:** `./data/posts.json`
+**When triggered by xyz task systemEvent** (`run skill=publish uid=0225a`):
+- Extract `uid` from the event text
+- Publish only that specific post
+
+**When triggered by user request:**
+- Read all Approved posts due now from `./data/posts.json`
 - Filter where `status` = "Approved" and `scheduledAt` ≤ current time
 
 ```python
-import json
+import json, re
 from datetime import datetime
+
+# If triggered by systemEvent, parse uid from text
+# e.g. "run skill=publish uid=0225a"
+event_text = "<system event text>"
+uid_match = re.search(r'uid=(\S+)', event_text)
+target_uid = uid_match.group(1) if uid_match else None
 
 with open('./data/posts.json', 'r') as f:
     data = json.load(f)
 
-approved_posts = [
-    post for post in data['posts']
-    if post['status'] == 'Approved' and
-       (post['scheduledAt'] is None or post['scheduledAt'] <= datetime.now().isoformat())
-]
+if target_uid:
+    # xyz task: publish the specific post
+    approved_posts = [p for p in data['posts']
+                      if p['uid'] == target_uid and p['status'] == 'Approved']
+else:
+    # User request: publish all due posts
+    approved_posts = [
+        p for p in data['posts']
+        if p['status'] == 'Approved' and
+           (p['scheduledAt'] is None or p['scheduledAt'] <= datetime.now().isoformat())
+    ]
 ```
 
 ---
