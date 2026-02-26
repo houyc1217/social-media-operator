@@ -155,20 +155,19 @@ Pillow renderer automatically.
 
 ### Step 1: Run the capture script
 
-Find and run the capture script from your workspace root:
+The script is at `${CLAUDE_PLUGIN_ROOT}/scripts/capture_gmap_review.py`. Run it directly — do NOT use `find` to search for it, as that may find a stale cached version:
 
 ```bash
-SCRIPT=$(find ~/.claude/plugins/cache -name "capture_gmap_review.py" -path "*/social-media-operator/*" 2>/dev/null | head -1)
-GOOGLE_MAPS_URL="<your-maps-url>" PLACE_NAME="<your-business-name>" \
-python3 "$SCRIPT"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/capture_gmap_review.py"
 ```
 
-If `GOOGLE_MAPS_URL` and `PLACE_NAME` are already exported in the environment:
+Before running, confirm you have the right version:
 
 ```bash
-SCRIPT=$(find ~/.claude/plugins/cache -name "capture_gmap_review.py" -path "*/social-media-operator/*" 2>/dev/null | head -1)
-python3 "$SCRIPT"
+grep -m1 "wait_until=" "${CLAUDE_PLUGIN_ROOT}/scripts/capture_gmap_review.py"
 ```
+
+Expected output contains `domcontentloaded` (NOT `networkidle`). If you see `networkidle`, the cache is stale — stop and notify the user.
 
 The script automatically:
 1. Launches Playwright headless Chromium (anti-detection configured)
@@ -183,6 +182,18 @@ The script automatically:
 **Fallback**: If the browser cannot launch (missing system libraries), the script automatically
 uses a Pillow-based card renderer — no browser required. You should only reach this path if
 you explicitly chose "skip" during the preflight check above.
+
+### Step 1.5: On fallback — check debug screenshots before diagnosing
+
+If the script returns `status: "fallback"`, **do not diagnose from general knowledge**. Instead read the actual debug screenshots the script saved:
+
+```bash
+ls -lt screenshots/debug_*.png 2>/dev/null | head -5
+```
+
+Read `screenshots/debug_place_page.png` to see what Google Maps actually rendered. This will show whether it was a captcha, a consent page, wrong page, or just missing reviews tab.
+
+Only after reading the debug screenshots should you report what happened.
 
 ### Step 2: Read script output
 

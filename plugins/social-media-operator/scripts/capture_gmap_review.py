@@ -362,35 +362,65 @@ async def click_reviews_tab(page):
     """Click the Reviews tab."""
     print("Clicking Reviews tab...")
 
-    reviews_tab = page.get_by_role("tab", name="Reviews")
-    if await reviews_tab.count() > 0 and await reviews_tab.is_visible():
-        await reviews_tab.click()
-        print("  Clicked Reviews tab via get_by_role")
+    # Scroll the left panel down a bit so the tab bar is in view
+    for scroll_sel in ['.m6QErb', '.bJzME', 'div[role="main"]']:
         try:
-            await page.wait_for_selector(SEL_REVIEW_CARD, timeout=10000)
-        except Exception:
-            pass
-        return True
-
-    for sel in [
-        '[role="tab"]:has-text("Reviews")',
-        'button[role="tab"]:has-text("Reviews")',
-        'button:has-text("Reviews")',
-    ]:
-        try:
-            tab = page.locator(sel).first
-            if await tab.count() > 0 and await tab.is_visible():
-                await tab.click()
-                print(f"  Clicked Reviews tab via {sel}")
-                try:
-                    await page.wait_for_selector(SEL_REVIEW_CARD, timeout=10000)
-                except Exception:
-                    pass
-                return True
+            panel = page.locator(scroll_sel).first
+            if await panel.count() > 0:
+                await panel.evaluate("el => el.scrollBy(0, 150)")
+                await asyncio.sleep(0.5)
+                break
         except Exception:
             continue
 
-    print("  WARNING: Reviews tab not found")
+    # Try all known selector patterns for the Reviews tab
+    for sel in [
+        'button[aria-label*="Reviews"]',
+        'button[data-tab-index="1"]',
+        '[role="tab"]:has-text("Reviews")',
+        'button[role="tab"]:has-text("Reviews")',
+        'button:has-text("Reviews")',
+        '.hh2c6:has-text("Reviews")',
+        '.Gpq6kf:has-text("Reviews")',
+    ]:
+        try:
+            tab = page.locator(sel).first
+            if await tab.count() > 0:
+                await tab.scroll_into_view_if_needed()
+                await asyncio.sleep(0.3)
+                if await tab.is_visible():
+                    await tab.click()
+                    print(f"  Clicked Reviews tab via {sel}")
+                    try:
+                        await page.wait_for_selector(SEL_REVIEW_CARD, timeout=10000)
+                    except Exception:
+                        pass
+                    return True
+        except Exception:
+            continue
+
+    # Last resort: find any button whose text is exactly "Reviews"
+    try:
+        buttons = await page.locator("button").all()
+        for btn in buttons:
+            try:
+                text = (await btn.inner_text()).strip()
+                if text == "Reviews":
+                    await btn.scroll_into_view_if_needed()
+                    await btn.click()
+                    print("  Clicked Reviews tab via text scan")
+                    try:
+                        await page.wait_for_selector(SEL_REVIEW_CARD, timeout=10000)
+                    except Exception:
+                        pass
+                    return True
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    print("  WARNING: Reviews tab not found — taking debug screenshot")
+    await page.screenshot(path=str(SCREENSHOTS_DIR / "debug_no_reviews_tab.png"))
     return False
 
 
