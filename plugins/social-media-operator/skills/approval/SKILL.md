@@ -74,9 +74,11 @@ Reply: "all", "1", "1,3", or "0224b"
 
 ---
 
-### Step 3: Approve, Schedule, and Create xyz Task
+### Step 3: Approve, Schedule, and Register Task
 
-For each post being approved: update posts.json AND create an xyz task in `~/.openclaw/cron/jobs.json`.
+For each post being approved: update posts.json AND register a scheduled publish task.
+
+**Scheduling is dual-mode** — OpenClaw xyz task (primary) or local queue file (fallback):
 
 ```python
 import json, uuid, time
@@ -86,63 +88,78 @@ from pathlib import Path
 
 london = ZoneInfo("Europe/London")
 
-# Update posts.json
 with open('./data/posts.json', 'r') as f:
     data = json.load(f)
 
-# Load xyz jobs
-jobs_file = Path.home() / '.openclaw' / 'cron' / 'jobs.json'
-with open(jobs_file, 'r') as f:
-    jobs = json.load(f)
+def register_publish_task(uid, scheduled_dt, scheduled_ms):
+    openclaw_jobs = Path.home() / '.openclaw' / 'cron' / 'jobs.json'
+    if openclaw_jobs.exists():
+        # Primary: OpenClaw xyz task — fires automatically at scheduled time
+        with open(openclaw_jobs, 'r') as f:
+            jobs = json.load(f)
+        now_ms = int(time.time() * 1000)
+        jobs['jobs'].append({
+            "id": str(uuid.uuid4()),
+            "agentId": "main",
+            "name": f"Publish {uid}",
+            "enabled": True,
+            "createdAtMs": now_ms,
+            "updatedAtMs": now_ms,
+            "schedule": {"kind": "at", "atMs": scheduled_ms},
+            "sessionTarget": "main",
+            "wakeMode": "next-heartbeat",
+            "payload": {"kind": "systemEvent", "text": f"run skill=publish uid={uid}"},
+            "state": {"nextRunAtMs": scheduled_ms, "lastRunAtMs": None,
+                      "lastStatus": None, "lastDurationMs": None}
+        })
+        with open(openclaw_jobs, 'w') as f:
+            json.dump(jobs, f, indent=2)
+        return "openclaw"
+    else:
+        # Fallback: local queue — requires manual "publish now" or system cron
+        tasks_file = Path('./data/scheduled_tasks.json')
+        tasks = json.loads(tasks_file.read_text()) if tasks_file.exists() else {"tasks": []}
+        tasks["tasks"].append({
+            "uid": uid,
+            "scheduledAt": scheduled_dt.isoformat(),
+            "status": "pending"
+        })
+        tasks_file.write_text(json.dumps(tasks, indent=2))
+        return "local"
 
 # Space multiple approvals 1 day apart starting tomorrow
+modes = []
 for i, uid in enumerate(uids_to_approve):
     scheduled_dt = (datetime.now(london) + timedelta(days=1+i)).replace(
         hour=12, minute=0, second=0, microsecond=0
     )
-    scheduled_iso = scheduled_dt.isoformat()
     scheduled_ms = int(scheduled_dt.timestamp() * 1000)
-    now_ms = int(time.time() * 1000)
 
-    # Update post in posts.json
     for post in data['posts']:
         if post['uid'] == uid:
             post['status'] = 'Approved'
             post['approvedAt'] = datetime.now().isoformat() + 'Z'
-            post['scheduledAt'] = scheduled_iso
+            post['scheduledAt'] = scheduled_dt.isoformat()
             break
 
-    # Create xyz task — fires once at scheduled time
-    jobs['jobs'].append({
-        "id": str(uuid.uuid4()),
-        "agentId": "main",          # set to current agent ID
-        "name": f"Publish {uid}",
-        "enabled": True,
-        "createdAtMs": now_ms,
-        "updatedAtMs": now_ms,
-        "schedule": {"kind": "at", "atMs": scheduled_ms},
-        "sessionTarget": "main",
-        "wakeMode": "next-heartbeat",
-        "payload": {"kind": "systemEvent", "text": f"run skill=publish uid={uid}"},
-        "state": {"nextRunAtMs": scheduled_ms, "lastRunAtMs": None,
-                  "lastStatus": None, "lastDurationMs": None}
-    })
+    modes.append(register_publish_task(uid, scheduled_dt, scheduled_ms))
 
 with open('./data/posts.json', 'w') as f:
     json.dump(data, f, indent=2)
-with open(jobs_file, 'w') as f:
-    json.dump(jobs, f, indent=2)
+
+scheduling_mode = "openclaw" if "openclaw" in modes else "local"
 ```
 
 **Scheduling:**
 - Single post → tomorrow 12:00 London
 - Multiple posts → consecutive days (tomorrow, +2, +3...) all at 12:00 London
-- Each post gets its own xyz task — no daily cron needed
+- Each post gets its own task — no daily cron needed
 
 ---
 
 ### Step 4: Confirm
 
+OpenClaw mode (auto-publishes):
 ```
 ✅ Approved and scheduled!
 
@@ -150,6 +167,16 @@ with open(jobs_file, 'w') as f:
 - 0225c → 27 Feb 12:00 (X + Instagram)
 
 Will auto-publish at noon each day.
+```
+
+Local fallback mode (manual publish required):
+```
+✅ Approved and scheduled!
+
+- 0223a → 26 Feb 12:00 (X + Instagram)
+- 0225c → 27 Feb 12:00 (X + Instagram)
+
+⚠️ Auto-publishing requires OpenClaw runtime. Say "publish now" at noon each day, or set up a system cron job (see CLAUDE.md).
 ```
 
 ---

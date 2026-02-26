@@ -2,6 +2,7 @@
 name: menu-import
 description: Menu data import — use LLM intelligence to understand and extract dish information from ANY format, then offer to generate posts
 user-invocable: true
+argument-hint: "[menu file path, image, or text description]"
 ---
 
 ## 🎯 Core Philosophy

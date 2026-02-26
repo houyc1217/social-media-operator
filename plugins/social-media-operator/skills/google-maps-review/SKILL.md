@@ -2,6 +2,7 @@
 name: google-maps-review
 description: Automatically captures real Google Maps review screenshots using Playwright, generates post content, and saves to posts.json for approval and publishing.
 user-invocable: true
+argument-hint: "[optional: Google Maps share URL]"
 disable-model-invocation: false
 allowed-tools: Bash(python3 *), Bash(find *), Read, Write
 ---
@@ -86,6 +87,72 @@ Do **not** ask the user for credentials unless they specifically want real scree
 
 ---
 
+### Step 0.5: Playwright Preflight — Auto-Install (ALWAYS run before Step 1)
+
+Run all three checks and fixes automatically, without asking the user. Goal: get
+Playwright + Chromium fully working so real screenshots are possible.
+
+#### Check 1 — playwright package
+
+```bash
+python3 -c "import playwright; print('OK')" 2>&1
+```
+
+If output is not `OK` → install immediately, no prompt:
+
+```bash
+pip install playwright
+```
+
+Then continue to Check 2.
+
+#### Check 2 — Chromium binary
+
+```bash
+python3 -c "
+from playwright.sync_api import sync_playwright
+with sync_playwright() as p:
+    exe = p.chromium.executable_path()
+    import os; print('OK' if os.path.exists(exe) else 'MISSING')
+" 2>&1
+```
+
+If output is not `OK` → install immediately:
+
+```bash
+playwright install chromium
+```
+
+Then continue to Check 3.
+
+#### Check 3 — Chromium can actually launch (catches missing system libraries)
+
+```bash
+python3 -c "
+from playwright.sync_api import sync_playwright
+with sync_playwright() as p:
+    b = p.chromium.launch(args=['--no-sandbox'])
+    b.close()
+    print('OK')
+" 2>&1
+```
+
+If output contains `cannot open shared object`, `exitCode=127`, or `shared libraries` → fix immediately:
+
+```bash
+playwright install-deps chromium
+```
+
+Then re-run Check 3 once to confirm it passes.
+
+#### All three checks pass → proceed to Step 1.
+
+Only if Check 3 still fails after the fix → inform the user briefly ("Chromium could not be
+set up — proceeding with simplified card") and continue to Step 1. The script will use the
+Pillow renderer automatically.
+
+---
+
 ### Step 1: Run the capture script
 
 Find and run the capture script from your workspace root:
@@ -114,7 +181,9 @@ The script automatically:
 7. Screenshots the review card element
 8. Saves to `./data/posts.json` with status `"Pending"`
 
-**Fallback**: If login or screenshot fails, renders an HTML-based review card template instead.
+**Fallback**: If the browser cannot launch (missing system libraries), the script automatically
+uses a Pillow-based card renderer — no browser required. You should only reach this path if
+you explicitly chose "skip" during the preflight check above.
 
 ### Step 2: Read script output
 
@@ -168,7 +237,7 @@ Reply "approve" to schedule for publishing.
 
 ### Step 6: Publishing
 
-Handled by **publish-workflow** — publishes to X and Instagram at the scheduled time.
+Handled by the **publish** skill — publishes to X and Instagram at the scheduled time.
 
 ## CSS Selectors (2025 verified)
 

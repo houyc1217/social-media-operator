@@ -36,8 +36,9 @@ allowed-tools: Bash(python3 *, curl *), Read, Write
 
 ## Trigger Conditions
 
-1. **xyz task systemEvent** (primary): `run skill=publish uid=<uid>` — fires automatically at the post's scheduled time
+1. **OpenClaw xyz task systemEvent** (primary): `run skill=publish uid=<uid>` — fires automatically at the post's scheduled time when OpenClaw runtime is present
 2. **User request**: "publish now", "publish 0225a" — immediate publish on demand
+3. **Manual scheduled check**: user says "publish now" at noon → check `./data/scheduled_tasks.json` for pending tasks due now (fallback for non-OpenClaw environments)
 
 ## Precondition
 
@@ -49,19 +50,21 @@ Post `status` must be `"Approved"`.
 
 ### 0. Determine Which Posts to Publish
 
-**When triggered by xyz task systemEvent** (`run skill=publish uid=0225a`):
+**When triggered by OpenClaw xyz task systemEvent** (`run skill=publish uid=0225a`):
 - Extract `uid` from the event text
 - Publish only that specific post
 
-**When triggered by user request:**
-- Read all Approved posts due now from `./data/posts.json`
-- Filter where `status` = "Approved" and `scheduledAt` ≤ current time
+**When triggered by user request** ("publish now", "publish 0225a"):
+- If a specific uid was given → publish that post
+- Otherwise → read all Approved posts due now from `./data/posts.json`
+- Also check `./data/scheduled_tasks.json` for pending tasks due now (non-OpenClaw fallback)
 
 ```python
 import json, re
 from datetime import datetime
+from pathlib import Path
 
-# If triggered by systemEvent, parse uid from text
+# If triggered by OpenClaw systemEvent, parse uid from text
 # e.g. "run skill=publish uid=0225a"
 event_text = "<system event text>"
 uid_match = re.search(r'uid=(\S+)', event_text)
@@ -70,17 +73,40 @@ target_uid = uid_match.group(1) if uid_match else None
 with open('./data/posts.json', 'r') as f:
     data = json.load(f)
 
+now_iso = datetime.now().isoformat()
+
 if target_uid:
-    # xyz task: publish the specific post
+    # OpenClaw task or explicit uid: publish the specific post
     approved_posts = [p for p in data['posts']
                       if p['uid'] == target_uid and p['status'] == 'Approved']
 else:
-    # User request: publish all due posts
+    # User "publish now": publish all Approved posts that are due
     approved_posts = [
         p for p in data['posts']
         if p['status'] == 'Approved' and
-           (p['scheduledAt'] is None or p['scheduledAt'] <= datetime.now().isoformat())
+           (p['scheduledAt'] is None or p['scheduledAt'] <= now_iso)
     ]
+
+    # Also pick up any pending tasks from local scheduled_tasks.json (non-OpenClaw fallback)
+    tasks_file = Path('./data/scheduled_tasks.json')
+    if tasks_file.exists() and not approved_posts:
+        tasks = json.loads(tasks_file.read_text())
+        due_uids = {t['uid'] for t in tasks.get('tasks', [])
+                    if t['status'] == 'pending' and t['scheduledAt'] <= now_iso}
+        if due_uids:
+            approved_posts = [p for p in data['posts']
+                              if p['uid'] in due_uids and p['status'] == 'Approved']
+
+# After successful publish, mark tasks as done in scheduled_tasks.json
+def mark_task_done(uid):
+    tasks_file = Path('./data/scheduled_tasks.json')
+    if not tasks_file.exists():
+        return
+    tasks = json.loads(tasks_file.read_text())
+    for t in tasks.get('tasks', []):
+        if t['uid'] == uid and t['status'] == 'pending':
+            t['status'] = 'done'
+    tasks_file.write_text(json.dumps(tasks, indent=2))
 ```
 
 ---
@@ -263,7 +289,7 @@ After a successful publish, update `./data/posts.json` **immediately**:
 **Implementation:**
 ```python
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Read current data
 with open('./data/posts.json', 'r') as f:
@@ -273,7 +299,7 @@ with open('./data/posts.json', 'r') as f:
 for post in data['posts']:
     if post['uid'] == target_uid:
         post['status'] = 'Posted'
-        post['postedAt'] = datetime.now(datetime.UTC).isoformat().replace('+00:00', 'Z')
+        post['postedAt'] = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
         post['tweetId'] = tweet_id
         post['tweetUrl'] = f"https://x.com/i/status/{tweet_id}"
         if ig_post_id:
@@ -284,6 +310,9 @@ for post in data['posts']:
 # Write back
 with open('./data/posts.json', 'w') as f:
     json.dump(data, f, indent=2)
+
+# Mark done in local scheduled_tasks.json if present
+mark_task_done(target_uid)
 ```
 
 **Update fields:**
@@ -304,7 +333,7 @@ with open('./data/posts.json', 'w') as f:
 import json
 import time
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 
 def upload_to_image_host(image_path):
     """Upload to dc.missuo.ru and return DIRECT signed CDN URL (after following redirect)."""
@@ -373,7 +402,7 @@ for post in approved_posts:
     for p in data['posts']:
         if p['uid'] == uid:
             p['status'] = 'Posted'
-            p['postedAt'] = datetime.now(datetime.UTC).isoformat().replace('+00:00', 'Z')
+            p['postedAt'] = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
             p['tweetId'] = tweet_id
             p['tweetUrl'] = tweet_url
             if ig_post_id:

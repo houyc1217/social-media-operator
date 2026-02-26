@@ -102,6 +102,20 @@ Seared to order, served with roasted vegetables and a side of herb rice. Availab
 
 **Data file:** `./data/posts.json`
 
+**Auto-initialize if missing:**
+
+```python
+from pathlib import Path
+import json
+
+data_dir = Path('./data')
+data_dir.mkdir(exist_ok=True)
+
+posts_file = data_dir / 'posts.json'
+if not posts_file.exists():
+    posts_file.write_text('{"posts": []}')
+```
+
 **Schema:**
 ```json
 {
@@ -199,7 +213,7 @@ Approve to schedule for tomorrow 12:00 London time?
 
 Two things happen immediately:
 1. Update posts.json to Approved + set scheduledAt
-2. Create an xyz task in `~/.openclaw/cron/jobs.json` to fire at that time
+2. Register a scheduled task (OpenClaw xyz task if available, local file otherwise)
 
 ```python
 import json, uuid, time
@@ -227,45 +241,57 @@ for post in data['posts']:
 with open('./data/posts.json', 'w') as f:
     json.dump(data, f, indent=2)
 
-# 3. Create xyz task in cron/jobs.json
-jobs_file = Path.home() / '.openclaw' / 'cron' / 'jobs.json'
-with open(jobs_file, 'r') as f:
-    jobs = json.load(f)
+# 3. Register scheduled task — dual-mode
+def register_publish_task(uid, scheduled_dt, scheduled_ms):
+    openclaw_jobs = Path.home() / '.openclaw' / 'cron' / 'jobs.json'
+    if openclaw_jobs.exists():
+        # Primary: OpenClaw xyz task — fires automatically at scheduled time
+        with open(openclaw_jobs, 'r') as f:
+            jobs = json.load(f)
+        now_ms = int(time.time() * 1000)
+        jobs['jobs'].append({
+            "id": str(uuid.uuid4()),
+            "agentId": "main",
+            "name": f"Publish {uid}",
+            "enabled": True,
+            "createdAtMs": now_ms,
+            "updatedAtMs": now_ms,
+            "schedule": {"kind": "at", "atMs": scheduled_ms},
+            "sessionTarget": "main",
+            "wakeMode": "next-heartbeat",
+            "payload": {"kind": "systemEvent", "text": f"run skill=publish uid={uid}"},
+            "state": {"nextRunAtMs": scheduled_ms, "lastRunAtMs": None,
+                      "lastStatus": None, "lastDurationMs": None}
+        })
+        with open(openclaw_jobs, 'w') as f:
+            json.dump(jobs, f, indent=2)
+        return "openclaw"
+    else:
+        # Fallback: local queue — requires manual "publish now" or system cron
+        tasks_file = Path('./data/scheduled_tasks.json')
+        tasks = json.loads(tasks_file.read_text()) if tasks_file.exists() else {"tasks": []}
+        tasks["tasks"].append({
+            "uid": uid,
+            "scheduledAt": scheduled_dt.isoformat(),
+            "status": "pending"
+        })
+        tasks_file.write_text(json.dumps(tasks, indent=2))
+        return "local"
 
-now_ms = int(time.time() * 1000)
-new_task = {
-    "id": str(uuid.uuid4()),
-    "agentId": "main",          # set to current agent ID
-    "name": f"Publish {uid}",
-    "enabled": True,
-    "createdAtMs": now_ms,
-    "updatedAtMs": now_ms,
-    "schedule": {
-        "kind": "at",
-        "atMs": scheduled_ms    # fires once at the scheduled time
-    },
-    "sessionTarget": "main",
-    "wakeMode": "next-heartbeat",
-    "payload": {
-        "kind": "systemEvent",
-        "text": f"run skill=publish uid={uid}"
-    },
-    "state": {
-        "nextRunAtMs": scheduled_ms,
-        "lastRunAtMs": None,
-        "lastStatus": None,
-        "lastDurationMs": None
-    }
-}
-jobs['jobs'].append(new_task)
-with open(jobs_file, 'w') as f:
-    json.dump(jobs, f, indent=2)
+mode = register_publish_task(uid, scheduled_dt, scheduled_ms)
 ```
 
-Confirm:
+Confirm based on scheduling mode:
+
 ```
+# OpenClaw mode:
 ✅ Scheduled — 0225a publishes tomorrow 12:00 London time
 Platforms: X + Instagram
+
+# Local fallback mode:
+✅ Scheduled — 0225a saved for tomorrow 12:00 London time
+Platforms: X + Instagram
+⚠️ Auto-publishing requires OpenClaw runtime. Say "publish now" at noon to publish manually.
 ```
 
 **If user wants edits** ("change to: ...", "shorter", "add emoji", etc.):
@@ -309,36 +335,28 @@ Or "1,3,5" to approve specific ones. Or "edit 2" to revise a caption.
 - "1,3" or "approve 1,3" → approve those, leave others as Pending
 - "edit 2" → show full caption, let user revise, then ask again for that one
 
-Consecutive scheduling + task creation:
-```python
-import uuid, time
-jobs_file = Path.home() / '.openclaw' / 'cron' / 'jobs.json'
-with open(jobs_file, 'r') as f:
-    jobs = json.load(f)
+Consecutive scheduling + task creation (uses the same `register_publish_task()` helper from Step 5):
 
+```python
 for i, uid in enumerate(approved_uids):
     scheduled_dt = (datetime.now(london) + timedelta(days=1+i)).replace(
         hour=12, minute=0, second=0, microsecond=0
     )
     scheduled_ms = int(scheduled_dt.timestamp() * 1000)
-    now_ms = int(time.time() * 1000)
-    jobs['jobs'].append({
-        "id": str(uuid.uuid4()),
-        "agentId": "main",
-        "name": f"Publish {uid}",
-        "enabled": True,
-        "createdAtMs": now_ms,
-        "updatedAtMs": now_ms,
-        "schedule": {"kind": "at", "atMs": scheduled_ms},
-        "sessionTarget": "main",
-        "wakeMode": "next-heartbeat",
-        "payload": {"kind": "systemEvent", "text": f"run skill=publish uid={uid}"},
-        "state": {"nextRunAtMs": scheduled_ms, "lastRunAtMs": None,
-                  "lastStatus": None, "lastDurationMs": None}
-    })
 
-with open(jobs_file, 'w') as f:
-    json.dump(jobs, f, indent=2)
+    # Update posts.json
+    for post in data['posts']:
+        if post['uid'] == uid:
+            post['status'] = 'Approved'
+            post['approvedAt'] = datetime.now().isoformat() + 'Z'
+            post['scheduledAt'] = scheduled_dt.isoformat()
+            break
+
+    # Register task (OpenClaw or local fallback)
+    register_publish_task(uid, scheduled_dt, scheduled_ms)
+
+with open('./data/posts.json', 'w') as f:
+    json.dump(data, f, indent=2)
 ```
 
 ---

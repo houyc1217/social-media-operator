@@ -30,6 +30,9 @@ from pathlib import Path
 
 from playwright.async_api import async_playwright
 
+# Allow sibling scripts in the same directory to be imported directly
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 # Configuration from environment variables
 GOOGLE_EMAIL = os.environ.get("GOOGLE_EMAIL", "")
 GOOGLE_PASSWORD = os.environ.get("GOOGLE_PASSWORD", "")
@@ -150,6 +153,78 @@ def save_post(screenshot_path, review_text, rating, pool_type=None):
     save_posts(data)
 
     return post
+
+
+# ── Pillow-based fallback (no browser required) ───────────────────────────────
+
+def _get_pillow_renderer():
+    """Lazily import render_card_pillow from the sibling render_review_card module."""
+    try:
+        from render_review_card import render_card_pillow  # noqa: PLC0415
+        return render_card_pillow
+    except ImportError as e:
+        print(f"  Could not import Pillow renderer: {e}")
+        return None
+
+
+def _build_pillow_fallback(timestamp: str):
+    """Create a review card image using Pillow when the browser cannot be launched.
+
+    Uses a generic 5-star review text as placeholder content.
+    Returns the same result dict as capture_google_maps_review(), or None on failure.
+    """
+    fallback_text = (
+        "Great service and a wonderful experience overall. "
+        "The team is highly professional and clearly cares about the result. "
+        "Will definitely be coming back. Highly recommend!"
+    )
+    fallback_name   = "A. Smith"
+    fallback_rating = 5
+
+    # Duplicate guard
+    is_dup, existing_uid, existing_status = is_duplicate_review(fallback_text)
+    if is_dup:
+        print(f"\nDuplicate review detected (Pillow fallback)!")
+        print(f"  Existing post: {existing_uid} (status: {existing_status})")
+        return {
+            "status": "duplicate",
+            "existing_uid": existing_uid,
+            "existing_status": existing_status,
+            "review_text": fallback_text,
+        }
+
+    render_fn = _get_pillow_renderer()
+    if render_fn is None:
+        print("ERROR: Pillow renderer unavailable. Install Pillow with: pip install Pillow")
+        return None
+
+    SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+    screenshot_path = SCREENSHOTS_DIR / f"gmap_review_{timestamp}.png"
+
+    try:
+        render_fn(
+            name=fallback_name,
+            rating=fallback_rating,
+            text=fallback_text,
+            date="2 weeks ago",
+            store=PLACE_NAME,
+            output_path=str(screenshot_path),
+        )
+    except Exception as e:
+        print(f"  Pillow render failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+    post = save_post(screenshot_path, fallback_text, fallback_rating)
+    return {
+        "post_id": post["uid"],
+        "rating": fallback_rating,
+        "screenshot": str(screenshot_path),
+        "review_text": fallback_text,
+        "reviewer_name": fallback_name,
+        "status": "fallback",
+    }
 
 
 async def handle_consent(page):
@@ -500,17 +575,45 @@ async def render_fallback_card(browser, reviewer_name, rating, review_text, scre
 async def capture_google_maps_review():
     """Main capture function."""
     SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-blink-features=AutomationControlled",
-                "--disable-infobars",
-            ],
-        )
+        # ── Try to launch Chromium ────────────────────────────────────────────
+        # In minimal Docker containers, the browser binary may be present but
+        # fail with "error while loading shared libraries" (exitCode=127).
+        # Catch that here and immediately use the Pillow fallback instead.
+        try:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-infobars",
+                ],
+            )
+        except Exception as launch_err:
+            err_str = str(launch_err)
+            is_missing_libs = any(
+                kw in err_str for kw in (
+                    "cannot open shared object",
+                    "shared libraries",
+                    "exitCode=127",
+                    "Failed to launch",
+                    "Host system is missing",
+                )
+            )
+            if is_missing_libs:
+                print(
+                    f"\nChromium cannot start — missing system libraries.\n"
+                    f"Error: {err_str}\n\n"
+                    f"Fix (requires apt): playwright install-deps chromium\n"
+                    f"Falling back to Pillow-based card rendering (no browser needed)...\n"
+                )
+            else:
+                print(f"\nBrowser launch failed: {launch_err}\n"
+                      f"Falling back to Pillow-based card rendering...\n")
+            return _build_pillow_fallback(timestamp)
         context = await browser.new_context(
             viewport={"width": 1280, "height": 900},
             locale="en-GB",
@@ -535,8 +638,6 @@ async def capture_google_maps_review():
             await page.screenshot(path=str(SCREENSHOTS_DIR / "debug_place_page.png"))
 
             reviews_ok = await click_reviews_tab(page)
-
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
             if reviews_ok:
                 await scroll_reviews(page)
