@@ -308,10 +308,15 @@ async def navigate_to_place(page):
     """Navigate to the business place page."""
     print(f"Navigating to {PLACE_NAME}...")
     await page.goto(GOOGLE_MAPS_URL, wait_until="domcontentloaded", timeout=60000)
-    await asyncio.sleep(4)
+    # Wait for Google Maps SPA to render the place panel (more reliable than a fixed sleep)
+    try:
+        await page.wait_for_selector('.DUwDvf', timeout=20000)
+    except Exception:
+        pass  # Will try search fallback below
+    await asyncio.sleep(1)
 
     await handle_consent(page)
-    await asyncio.sleep(2)
+    await asyncio.sleep(1)
 
     try:
         name_elem = page.locator('.DUwDvf').first
@@ -328,12 +333,18 @@ async def navigate_to_place(page):
         wait_until="domcontentloaded",
         timeout=60000,
     )
-    await asyncio.sleep(4)
+    try:
+        await page.wait_for_selector('.Nv2PK', timeout=15000)
+    except Exception:
+        pass
 
     results = await page.locator('.Nv2PK').all()
     if results:
         await results[0].click()
-        await asyncio.sleep(4)
+        try:
+            await page.wait_for_selector('.DUwDvf', timeout=10000)
+        except Exception:
+            pass
 
     try:
         name_elem = page.locator('.DUwDvf').first
@@ -355,7 +366,10 @@ async def click_reviews_tab(page):
     if await reviews_tab.count() > 0 and await reviews_tab.is_visible():
         await reviews_tab.click()
         print("  Clicked Reviews tab via get_by_role")
-        await asyncio.sleep(3)
+        try:
+            await page.wait_for_selector(SEL_REVIEW_CARD, timeout=10000)
+        except Exception:
+            pass
         return True
 
     for sel in [
@@ -368,7 +382,10 @@ async def click_reviews_tab(page):
             if await tab.count() > 0 and await tab.is_visible():
                 await tab.click()
                 print(f"  Clicked Reviews tab via {sel}")
-                await asyncio.sleep(3)
+                try:
+                    await page.wait_for_selector(SEL_REVIEW_CARD, timeout=10000)
+                except Exception:
+                    pass
                 return True
         except Exception:
             continue

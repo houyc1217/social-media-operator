@@ -77,11 +77,11 @@ Confirm: `Configuration saved to config.json. Starting capture now...`
 
 #### Optional: Google credentials
 
-Google credentials (`GOOGLE_EMAIL` / `GOOGLE_PASSWORD`) are **not required**. The script works without them:
-- **With credentials** → logs in to Google, attempts real review screenshot from Maps
-- **Without credentials** → skips login, tries Maps anyway; if Reviews tab is hidden, falls back to HTML-rendered review card
+Google credentials (`GOOGLE_EMAIL` / `GOOGLE_PASSWORD`) are **not required**. Google Maps reviews are publicly visible without login. The script works fine without them:
+- **With credentials** → logs in to Google before navigating (may help in regions with strict consent flows)
+- **Without credentials** → skips login entirely, navigates directly to Maps, captures real reviews
 
-Do **not** ask the user for credentials unless they specifically want real screenshots and the fallback is not acceptable to them.
+Do **not** ask the user for credentials. The script should capture real reviews without them.
 
 #### If GOOGLE_MAPS_URL and PLACE_NAME are already present → skip asking, proceed to Step 1
 
@@ -159,12 +159,11 @@ Find and run the capture script from your workspace root:
 
 ```bash
 SCRIPT=$(find ~/.claude/plugins/cache -name "capture_gmap_review.py" -path "*/social-media-operator/*" 2>/dev/null | head -1)
-GOOGLE_EMAIL="<your-email>" GOOGLE_PASSWORD="<your-password>" \
 GOOGLE_MAPS_URL="<your-maps-url>" PLACE_NAME="<your-business-name>" \
 python3 "$SCRIPT"
 ```
 
-If credentials are already exported in the environment:
+If `GOOGLE_MAPS_URL` and `PLACE_NAME` are already exported in the environment:
 
 ```bash
 SCRIPT=$(find ~/.claude/plugins/cache -name "capture_gmap_review.py" -path "*/social-media-operator/*" 2>/dev/null | head -1)
@@ -173,9 +172,9 @@ python3 "$SCRIPT"
 
 The script automatically:
 1. Launches Playwright headless Chromium (anti-detection configured)
-2. Logs in to Google account
+2. Skips Google login (credentials not required — reviews are publicly visible)
 3. Navigates to the business Maps page
-4. Clicks Reviews tab (only visible when logged in)
+4. Waits for Google Maps SPA to render, then clicks the Reviews tab
 5. Scrolls to load more reviews
 6. Selects the best 5-star review (longest text, skips duplicates)
 7. Screenshots the review card element
@@ -260,7 +259,7 @@ Handled by the **publish** skill — publishes to X and Instagram at the schedul
 | Scenario | Resolution |
 |---|---|
 | Google login blocked by 2FA | Tries "Try another way"; falls back to HTML template |
-| Reviews tab not visible | Login may have failed; falls back to HTML template |
+| Reviews tab not visible | Page may not have rendered; script falls back to HTML template |
 | No 5-star reviews | Degrades to 4-star reviews |
 | Screenshot fails | Retries once using bounding box clip |
 | Duplicate review detected | Reports existing post UID, skips saving |
