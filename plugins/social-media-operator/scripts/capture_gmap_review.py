@@ -307,7 +307,7 @@ async def google_login(page):
 async def navigate_to_place(page):
     """Navigate to the business place page."""
     print(f"Navigating to {PLACE_NAME}...")
-    await page.goto(GOOGLE_MAPS_URL, wait_until="networkidle", timeout=60000)
+    await page.goto(GOOGLE_MAPS_URL, wait_until="domcontentloaded", timeout=60000)
     await asyncio.sleep(4)
 
     await handle_consent(page)
@@ -325,7 +325,7 @@ async def navigate_to_place(page):
     print("  Trying search fallback...")
     await page.goto(
         f"https://www.google.com/maps/search/{PLACE_SEARCH_QUERY.replace(' ', '+')}",
-        wait_until="networkidle",
+        wait_until="domcontentloaded",
         timeout=60000,
     )
     await asyncio.sleep(4)
